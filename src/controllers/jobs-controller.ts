@@ -1,127 +1,146 @@
-import { Request, Response } from 'express'
-import { Job } from '../models'
+import { Request, Response } from "express";
+import { Job } from "../models";
 
 const jobsController = {
-    index: async (req: Request, res: Response) => {
-        try {
-            const jobs = await Job.findAll()
-            return res.json(jobs)
-        } catch (err) {
-            if (err instanceof Error) {
-                return res.status(400).json({ message: err.message })                
-            }
+  index: async (req: Request, res: Response) => {
+    try {
+      const jobs = await Job.findAll();
+      return res.json(jobs);
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+    }
+  },
+
+  save: async (req: Request, res: Response) => {
+    const { title, description, limitDate, companyId } = req.body;
+
+    try {
+      const job = await Job.create({
+        title,
+        description,
+        limitDate,
+        companyId,
+      });
+
+      return res.status(201).json(job);
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+    }
+  },
+
+  show: async (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    try {
+      const job = await Job.findByPk(id, {
+        include: ["company", "candidates"],
+      });
+      const candidatesCount = await job?.countCandidates();
+      return res.json({ ...job?.get(), candidatesCount });
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+    }
+  },
+
+  update: async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { title, description, limitDate, companyId } = req.body;
+
+    try {
+      const [affectedRows, jobs] = await Job.update(
+        {
+          title,
+          description,
+          limitDate,
+          companyId,
+        },
+        {
+          where: { id },
+          returning: true,
         }
-    },
+      );
 
-    save: async (req: Request, res: Response) => {
-        const { title, description, limitDate, companyId } = req.body
+      return res.json(jobs[0]);
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+    }
+  },
 
-        try {
-            const job = await Job.create({
-                title,
-                description,
-                limitDate,
-                companyId,
-            })
-    
-            return res.status(201).json(job)
-        } catch (err) {
-            if (err instanceof Error) {
-                return res.status(400).json({ message: err.message })                
-            }
-        }
-    },
+  delete: async (req: Request, res: Response) => {
+    const { id } = req.params;
 
-    show: async (req: Request, res: Response) => {
-        const { id } = req.params
+    try {
+      await Job.destroy({
+        where: { id: id },
+      });
 
-        try {
-            const job = await Job.findByPk(id, { include: ['company', 'candidates'] })
-            const candidatesCount = await job?.countCandidates()
-            return res.json({ ...job?.get(), candidatesCount })
-        } catch (err) {
-            if (err instanceof Error) {
-                return res.status(400).json({ message: err.message })
-            }
-        }
-    },
+      return res.status(204).send();
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+    }
+  },
 
-    update: async (req: Request, res: Response) => {
-        const { id } = req.params
-        const { title, description, limitDate, companyId } = req.body
+  addCandidate: async (req: Request, res: Response) => {
+    const jobId = req.params.id;
+    const { candidateId } = req.body;
 
-        try {
-            const [affectedRows, jobs] = await Job.update({
-                title,
-                description,
-                limitDate,
-                companyId,
-            }, {
-                where: { id },
-                returning: true
-            })
-    
-            return res.json(jobs[0])
-        } catch (err) {
-            if (err instanceof Error) {
-                return res.status(400).json({ message: err.message })                
-            }
-        }
-    },
+    try {
+      if (candidateId === undefined)
+        return res.status(400).json({ message: "candidateId é obrigatório" });
 
-    delete: async (req: Request, res: Response) => {
-        const { id } = req.params
+      const job = await Job.findByPk(jobId);
 
-        try {
-            await Job.destroy({
-                where: { id: id }
-            })
-    
-            return res.status(204).send()
-        } catch (err) {
-            if (err instanceof Error) {
-                return res.status(400).json({ message: err.message })                
-            }
-        }
-    },
+      if (job === null)
+        return res
+          .status(404)
+          .json({ message: "Vaga de emprego não encontrada" });
 
-    addCandidate: async (req: Request, res: Response) => {
-        const jobId = req.params.id
-        const { candidateId } = req.body
+      const candidateAlreadyAdded = await job.hasCandidate(candidateId);
 
-        try {
-            const job = await Job.findByPk(jobId)
+      if (candidateAlreadyAdded)
+        return res.status(400).json({ message: "Candidato já cadastrado" });
 
-            if (job === null) return res.status(404).json({ message: 'Vaga de emprego não encontrada' })
+      await job.addCandidate(candidateId);
 
-            await job.addCandidate(candidateId)
+      return res.status(201).send();
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+    }
+  },
 
-            return res.status(201).send()
-        } catch (err) {
-            if (err instanceof Error) {
-                return res.status(400).json({ message: err.message })
-            }
-        }
-    },
+  removeCandidate: async (req: Request, res: Response) => {
+    const jobId = req.params.id;
+    const { candidateId } = req.body;
 
-    removeCandidate: async (req: Request, res: Response) => {
-        const jobId = req.params.id
-        const { candidateId } = req.body
+    try {
+      const job = await Job.findByPk(jobId);
 
-        try {
-            const job = await Job.findByPk(jobId)
+      if (job === null)
+        return res
+          .status(404)
+          .json({ message: "Vaga de emprego não encontrada" });
 
-            if (job === null) return res.status(404).json({ message: 'Vaga de emprego não encontrada' })
+      await job.removeCandidate(candidateId);
 
-            await job.removeCandidate(candidateId)
+      return res.status(204).send();
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+    }
+  },
+};
 
-            return res.status(204).send()
-        } catch (err) {
-            if (err instanceof Error) {
-                return res.status(400).json({ message: err.message })
-            }
-        }
-    },
-}
-
-export { jobsController }
+export { jobsController };
